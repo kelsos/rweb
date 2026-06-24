@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# rweb pre-commit: formatting, vet, build, and tests must all pass before a
+# commit is recorded. Enable with `make hooks` (sets core.hooksPath=.githooks).
+set -euo pipefail
+
+# git injects GIT_DIR/GIT_INDEX_FILE/etc. into hooks; clear them so the test
+# suite (which shells out to git for the worktree tests) operates on its own
+# temp repos rather than this one's index.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_COMMON_DIR \
+	GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES 2>/dev/null || true
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "▶ gofmt"
+unformatted="$(gofmt -l . 2>/dev/null || true)"
+if [ -n "$unformatted" ]; then
+	echo "✗ gofmt: these files are not formatted:" >&2
+	echo "$unformatted" | sed 's/^/    /' >&2
+	echo "  fix with: gofmt -w ." >&2
+	exit 1
+fi
+
+echo "▶ go vet"
+go vet ./...
+
+echo "▶ go build"
+go build ./...
+
+echo "▶ go test"
+go test ./...
+
+echo "✓ all checks passed"

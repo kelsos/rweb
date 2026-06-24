@@ -1,0 +1,9 @@
+/rweb
+/dist/
+# never commit decrypted secrets or identities
+*.age
+age.key
+*.tmp
+
+# local Claude Code settings
+.claude/
