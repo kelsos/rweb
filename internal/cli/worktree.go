@@ -101,11 +101,59 @@ func worktreeCmd() *cobra.Command {
 	return c
 }
 
+// completeRepoKeys completes the first positional argument with the configured
+// repo keys. Used by worktree subcommands that take a repo as their first arg.
+func completeRepoKeys(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return repoKeys(cfg), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeWorktreeNames completes a worktree selection for the repo named in
+// args[0], offering both branch names and worktree directory base names (the two
+// forms worktree.Resolve accepts).
+func completeWorktreeNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) != 1 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	ref, ok := repoRef(cfg, args[0])
+	if !ok || *ref.Path == "" || !worktree.IsWorkTree(*ref.Path) {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	trees, err := worktree.List(*ref.Path)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	seen := map[string]bool{}
+	var names []string
+	add := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			names = append(names, s)
+		}
+	}
+	for _, t := range trees {
+		add(t.Branch)
+		add(filepath.Base(t.Path))
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
 func worktreeListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list [repo]",
-		Short: "List available git worktrees per repo (* marks the active selection)",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "list [repo]",
+		Short:             "List available git worktrees per repo (* marks the active selection)",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeRepoKeys,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -156,6 +204,12 @@ func worktreeUseCmd() *cobra.Command {
 		Use:   "use <repo> <name>",
 		Short: "Persist a worktree selection for a repo (sticky across runs)",
 		Args:  cobra.ExactArgs(2),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) == 0 {
+				return completeRepoKeys(cmd, args, toComplete)
+			}
+			return completeWorktreeNames(cmd, args, toComplete)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, name := args[0], args[1]
 			cfg, err := config.Load()
@@ -191,9 +245,10 @@ func worktreeUseCmd() *cobra.Command {
 
 func worktreeClearCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "clear <repo>",
-		Short: "Clear a repo's worktree selection (revert to its configured path)",
-		Args:  cobra.ExactArgs(1),
+		Use:               "clear <repo>",
+		Short:             "Clear a repo's worktree selection (revert to its configured path)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeRepoKeys,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo := args[0]
 			cfg, err := config.Load()
