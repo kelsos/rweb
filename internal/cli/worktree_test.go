@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kelsos/rweb/internal/config"
+	"github.com/spf13/cobra"
 )
 
 // repoWithWorktree creates a git repo and a linked "feature/x" worktree, or
@@ -94,5 +95,87 @@ func TestApplyWorktrees_NoSelectionNoop(t *testing.T) {
 	}
 	if cfg.Repos.RotkiCom != "/some/path" || cfg.Repos.RotkehlchenWeb != "/another/path" {
 		t.Error("no selection must leave repo paths untouched (no git invoked)")
+	}
+}
+
+func contains(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCompleteRepoKeys(t *testing.T) {
+	withTempConfig(t)
+	if err := config.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first positional arg is completed with the configured repo keys.
+	names, directive := completeRepoKeys(nil, nil, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want NoFileComp", directive)
+	}
+	if !contains(names, "rotki_com") || !contains(names, "rotkehlchen_web") {
+		t.Errorf("expected repo keys among completions, got %v", names)
+	}
+
+	// Once the repo arg is supplied there is nothing more to complete.
+	if names, _ := completeRepoKeys(nil, []string{"rotki_com"}, ""); names != nil {
+		t.Errorf("no completion expected past the first arg, got %v", names)
+	}
+}
+
+func TestCompleteRepoKeys_NoConfig(t *testing.T) {
+	withTempConfig(t) // temp XDG dir, but nothing saved: config.Load fails
+	names, directive := completeRepoKeys(nil, nil, "")
+	if names != nil {
+		t.Errorf("missing config should yield no completions, got %v", names)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want NoFileComp", directive)
+	}
+}
+
+func TestCompleteWorktreeNames(t *testing.T) {
+	main, _ := repoWithWorktree(t)
+	withTempConfig(t)
+	cfg := config.Default()
+	cfg.Repos.RotkiCom = main
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	names, directive := completeWorktreeNames(nil, []string{"rotki_com"}, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want NoFileComp", directive)
+	}
+	// Both the branch name and the linked worktree's dir base name are offered.
+	if !contains(names, "main") || !contains(names, "feature/x") || !contains(names, "feature") {
+		t.Errorf("expected branch and dir-base completions, got %v", names)
+	}
+}
+
+func TestCompleteWorktreeNames_Guards(t *testing.T) {
+	withTempConfig(t)
+	cfg := config.Default()
+	cfg.Repos.RotkiCom = "/does/not/exist"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrong arg count (the repo isn't chosen yet, or a second name is being typed).
+	if names, _ := completeWorktreeNames(nil, nil, ""); names != nil {
+		t.Errorf("no completion without the repo arg, got %v", names)
+	}
+	// Unknown repo key.
+	if names, _ := completeWorktreeNames(nil, []string{"bogus"}, ""); names != nil {
+		t.Errorf("unknown repo should yield no completions, got %v", names)
+	}
+	// Known repo whose path is not a git work tree.
+	if names, _ := completeWorktreeNames(nil, []string{"rotki_com"}, ""); names != nil {
+		t.Errorf("non-worktree path should yield no completions, got %v", names)
 	}
 }
