@@ -103,9 +103,10 @@ func mergedKeys(cfg *config.Config) (map[string][]string, error) {
 
 func envUseCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "use <name>",
-		Short: "Select the active environment (sticky across runs)",
-		Args:  cobra.ExactArgs(1),
+		Use:               "use <name>",
+		Short:             "Select the active environment (sticky across runs)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeEnvNames(true),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			cfg, err := config.Load()
@@ -273,9 +274,10 @@ func envNewCmd() *cobra.Command {
 func envRmEnvCmd() *cobra.Command {
 	var purgeSecrets bool
 	c := &cobra.Command{
-		Use:   "rm-env <name>",
-		Short: "Delete a named environment (its overlay; optionally its secret file)",
-		Args:  cobra.ExactArgs(1),
+		Use:               "rm-env <name>",
+		Short:             "Delete a named environment (its overlay; optionally its secret file)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeEnvNames(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			if name == config.DefaultEnv {

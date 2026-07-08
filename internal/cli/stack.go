@@ -14,9 +14,10 @@ import (
 func upCmd() *cobra.Command {
 	var noMigrate, noNest, noSync bool
 	c := &cobra.Command{
-		Use:   "up [profile]",
-		Short: "Start a profile (default: full), supervised and health-ordered",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "up [profile]",
+		Short:             "Start a profile (default: full), supervised and health-ordered",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeProfiles,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -91,9 +92,10 @@ func statusCmd() *cobra.Command {
 
 func restartCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "restart <service>",
-		Short: "Restart a single service",
-		Args:  cobra.ExactArgs(1),
+		Use:               "restart <service>",
+		Short:             "Restart a single service",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeServiceNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -107,9 +109,10 @@ func restartCmd() *cobra.Command {
 func logsCmd() *cobra.Command {
 	var follow bool
 	c := &cobra.Command{
-		Use:   "logs [service...]",
-		Short: "Tail captured logs (all tracked services, multiplexed, when none given)",
-		Args:  cobra.ArbitraryArgs,
+		Use:               "logs [service...]",
+		Short:             "Tail captured logs (all tracked services, multiplexed, when none given)",
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: completeLogServices,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
 				return proc.Tail(args[0], follow)

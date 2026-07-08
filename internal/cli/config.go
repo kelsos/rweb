@@ -51,6 +51,12 @@ func configSetRepoCmd() *cobra.Command {
 			"Pass an empty path (\"\") to clear an optional repo. Point worktree-backed\n" +
 			"repos at a leaf, not the container holding .git; run `rweb doctor` after.",
 		Args: cobra.ExactArgs(2),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) == 0 {
+				return completeRepoKeys(cmd, args, toComplete)
+			}
+			return nil, cobra.ShellCompDirectiveDefault // file completion for <path>
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, raw := args[0], args[1]
 			cfg, err := config.Load()

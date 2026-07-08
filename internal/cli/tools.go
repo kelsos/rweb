@@ -12,9 +12,10 @@ import (
 
 func openCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "open <site|mailpit|traefik|report>",
-		Short: "Open a service URL in the browser",
-		Args:  cobra.ExactArgs(1),
+		Use:       "open <site|mailpit|traefik|report>",
+		Short:     "Open a service URL in the browser",
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: []string{"site", "mailpit", "traefik", "report"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -54,6 +55,12 @@ func execCmd() *cobra.Command {
 		Use:   "exec <target> -- <args...>",
 		Short: "Run a command in a service context with env injected (targets: django)",
 		Args:  cobra.MinimumNArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) == 0 {
+				return []string{"django"}, cobra.ShellCompDirectiveNoFileComp
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {

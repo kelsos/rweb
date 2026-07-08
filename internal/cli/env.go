@@ -164,9 +164,10 @@ func envTarget(cfg *config.Config) (string, map[string]map[string]string, error)
 func envSetCmd() *cobra.Command {
 	var force bool
 	c := &cobra.Command{
-		Use:   "set <scope> <KEY> <VALUE>",
-		Short: "Set a non-secret env value injected into a scope's services",
-		Args:  cobra.ExactArgs(3),
+		Use:               "set <scope> <KEY> <VALUE>",
+		Short:             "Set a non-secret env value injected into a scope's services",
+		Args:              cobra.ExactArgs(3),
+		ValidArgsFunction: completeScopeArg(completeEnvKeys),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			scope, key, val := args[0], args[1], args[2]
 			if !validScope(scope) {
@@ -205,9 +206,10 @@ func envSetCmd() *cobra.Command {
 
 func envRmCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <scope> <KEY>",
-		Short: "Remove a non-secret env value",
-		Args:  cobra.ExactArgs(2),
+		Use:               "rm <scope> <KEY>",
+		Short:             "Remove a non-secret env value",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeScopeArg(completeEnvKeys),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			scope, key := args[0], args[1]
 			cfg, err := config.Load()

@@ -68,9 +68,10 @@ func dbBackupCmd() *cobra.Command {
 func dbRestoreCmd() *cobra.Command {
 	var yes bool
 	c := &cobra.Command{
-		Use:   "restore [name|latest|path]",
-		Short: "Restore the database from a backup (destructive)",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "restore [name|latest|path]",
+		Short:             "Restore the database from a backup (destructive)",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeBackupRefs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {

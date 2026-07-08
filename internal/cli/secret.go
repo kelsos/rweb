@@ -49,9 +49,10 @@ func runSecretUI() error {
 
 func secretSetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "set <scope> <KEY> [VALUE]",
-		Short: "Set a secret (value read hidden from stdin if omitted)",
-		Args:  cobra.RangeArgs(2, 3),
+		Use:               "set <scope> <KEY> [VALUE]",
+		Short:             "Set a secret (value read hidden from stdin if omitted)",
+		Args:              cobra.RangeArgs(2, 3),
+		ValidArgsFunction: completeScopeArg(completeSecretKeys),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -71,9 +72,10 @@ func secretSetCmd() *cobra.Command {
 
 func secretRmCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <scope> <KEY>",
-		Short: "Remove a secret",
-		Args:  cobra.ExactArgs(2),
+		Use:               "rm <scope> <KEY>",
+		Short:             "Remove a secret",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeScopeArg(completeSecretKeys),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {

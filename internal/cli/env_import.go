@@ -76,7 +76,8 @@ func envImportCmd() *cobra.Command {
 			"sensitive (PASS/SECRET/TOKEN/…) go to the encrypted secret store; the rest go\n" +
 			"to the plaintext [env.*] config. Existing values are skipped unless --overwrite.\n" +
 			"Use --env to import into a named environment.",
-		Args: cobra.ExactArgs(2),
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeScopeThenFile,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			scope, file := args[0], args[1]
 			if !validScope(scope) {
