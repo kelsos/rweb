@@ -94,10 +94,23 @@ func e2eCommand(cfg *config.Config, ui bool) (string, []string) {
 func runIn(dir, name string, args ...string) error {
 	c := exec.Command(name, args...)
 	c.Dir = dir
+	c.Env = e2eEnv()
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	return c.Run()
+}
+
+// e2eEnv is the ambient env plus the macOS TMPDIR fix; the Playwright suites
+// start their own Nuxt dev server and hit the same socket-path limit. Appending
+// last is what makes the override stick: exec resolves duplicate keys to the
+// last occurrence.
+func e2eEnv() []string {
+	env := os.Environ()
+	for k, v := range proc.ShortTmpdir() {
+		env = append(env, k+"="+v)
+	}
+	return env
 }
 
 func reviewCmd() *cobra.Command {

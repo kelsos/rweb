@@ -6,6 +6,7 @@ package proc
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 
 	"github.com/kelsos/rweb/internal/config"
 	"github.com/kelsos/rweb/internal/envutil"
@@ -117,6 +118,28 @@ func derivedEnv(cfg *config.Config, scope string) map[string]string {
 	return map[string]string{}
 }
 
+// ShortTmpdir pins TMPDIR to /tmp on macOS, where the default per-user temp dir
+// is long enough to break Nuxt's vite-node unix socket. It returns nil on other
+// platforms, so callers can merge it unconditionally.
+//
+// macOS caps sun_path at 104 bytes (Linux allows 108) and hands each user a
+// TMPDIR like /var/folders/zn/n9fpvbnj3fn971b5s466fzd40000gn/T/ (~49 bytes).
+// Nuxt appends a random dir plus nuxt-vite-node-<pid>-<ts>.sock (~61 more), so
+// the path lands around 110 bytes and connect() fails with EINVAL. /tmp is 4
+// bytes and leaves ample headroom. Linux has no such problem, so leave its env
+// untouched rather than overriding a TMPDIR the user may have set on purpose.
+//
+// Anything that starts a Nuxt dev server needs this: the nuxt service itself,
+// and the Playwright suites, which spin one up of their own.
+func ShortTmpdir() map[string]string { return shortTmpdirFor(runtime.GOOS) }
+
+func shortTmpdirFor(goos string) map[string]string {
+	if goos != "darwin" {
+		return nil
+	}
+	return map[string]string{"TMPDIR": "/tmp"}
+}
+
 func buildService(cfg *config.Config, name string) (Service, error) {
 	rw := cfg.Repos.RotkehlchenWeb
 	rc := cfg.Repos.RotkiCom
@@ -162,6 +185,7 @@ func buildService(cfg *config.Config, name string) (Service, error) {
 			Name: "nuxt", Dir: rc, Cmd: cfg.Tools.Make,
 			Args:     []string{"dev-web"},
 			EnvFiles: []string{filepath.Join(rc, "packages", "website", ".env")}, Scope: secrets.ScopeNuxt,
+			Env:    ShortTmpdir(),
 			Health: Health{HTTP: fmt.Sprintf("http://localhost:%d", cfg.Ports.Nuxt)},
 		}, nil
 	case "nest":

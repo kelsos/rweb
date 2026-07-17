@@ -358,3 +358,53 @@ func TestDjangoServicesUnbuffered(t *testing.T) {
 		}
 	}
 }
+
+// macOS caps unix socket paths at 104 bytes and the default per-user TMPDIR is
+// long enough that Nuxt's vite-node socket overruns it. Other platforms keep
+// whatever TMPDIR the user set.
+func TestShortTmpdirOnlyOnDarwin(t *testing.T) {
+	if got := shortTmpdirFor("darwin")["TMPDIR"]; got != "/tmp" {
+		t.Errorf("darwin should pin TMPDIR=/tmp, got %q", got)
+	}
+	for _, goos := range []string{"linux", "windows"} {
+		if got := shortTmpdirFor(goos); got != nil {
+			t.Errorf("%s should leave TMPDIR alone, got %v", goos, got)
+		}
+	}
+}
+
+func TestNuxtServiceUsesShortTmpdir(t *testing.T) {
+	s, err := buildService(config.Default(), "nuxt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, ok := ShortTmpdir()["TMPDIR"]
+	got, gotOK := s.Env["TMPDIR"]
+	if ok != gotOK || got != want {
+		t.Errorf("nuxt TMPDIR = %q (set=%v), want %q (set=%v)", got, gotOK, want, ok)
+	}
+}
+
+// The overlay must land after os.Environ so it beats an inherited long TMPDIR:
+// exec resolves duplicate keys to the last occurrence.
+func TestBuildEnvTmpdirOverridesInherited(t *testing.T) {
+	t.Setenv("TMPDIR", "/var/folders/zn/n9fpvbnj3fn971b5s466fzd40000gn/T/")
+	s, err := buildService(config.Default(), "nuxt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Env = map[string]string{"TMPDIR": "/tmp"} // force the darwin overlay on any host
+	env, err := BuildEnv(s, fakeSource{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := ""
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "TMPDIR=") {
+			last = kv
+		}
+	}
+	if last != "TMPDIR=/tmp" {
+		t.Errorf("composed env should resolve TMPDIR to /tmp, got %q", last)
+	}
+}
