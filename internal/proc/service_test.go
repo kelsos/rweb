@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,33 @@ func TestServicesFullProfileOrder(t *testing.T) {
 	}
 	if !got[0].Oneshot {
 		t.Error("docker should be oneshot")
+	}
+}
+
+func TestDockerServiceHasPostgresReadinessProbe(t *testing.T) {
+	cfg := config.Default()
+	s, err := buildService(cfg, "docker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Postgres must use a real readiness probe (pg_isready), not a bare TCP
+	// dial: the mapped port can accept a connection mid-initdb, before the
+	// server is ready, which would let migrations run too early.
+	if s.Health.Postgres == nil {
+		t.Fatal("docker service should have a Postgres readiness probe")
+	}
+	if s.Health.Postgres.Docker != cfg.Tools.Docker {
+		t.Errorf("probe docker = %q, want %q", s.Health.Postgres.Docker, cfg.Tools.Docker)
+	}
+	if s.Health.Postgres.Dir != cfg.Repos.RotkehlchenWeb {
+		t.Errorf("probe dir = %q, want %q", s.Health.Postgres.Dir, cfg.Repos.RotkehlchenWeb)
+	}
+	// The postgres TCP dial is replaced by the pg_isready probe; only redis
+	// should remain as a TCP check.
+	for _, addr := range s.Health.TCP {
+		if strings.HasSuffix(addr, fmt.Sprintf(":%d", cfg.Ports.Postgres)) {
+			t.Errorf("postgres should not be a bare TCP probe, got %q", addr)
+		}
 	}
 }
 

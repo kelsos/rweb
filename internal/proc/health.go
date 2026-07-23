@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 )
 
 // checkHealth returns nil when the service satisfies its readiness probe. A
-// service with no TCP/HTTP probe is considered healthy as soon as it is alive.
+// service with no TCP/HTTP/Postgres probe is considered healthy as soon as it
+// is alive.
 func checkHealth(h Health) error {
 	for _, addr := range h.TCP {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
@@ -27,6 +30,29 @@ func checkHealth(h Health) error {
 		if resp.StatusCode >= 500 {
 			return fmt.Errorf("http %s: status %d", h.HTTP, resp.StatusCode)
 		}
+	}
+	if h.Postgres != nil {
+		if err := h.Postgres.check(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// check runs pg_isready inside the postgres container. Unlike a bare TCP dial
+// to the mapped port, this confirms the server has finished initdb and is
+// accepting connections, which is what migrations and app servers actually
+// need. A non-existent container (compose exec failing) is just an unready
+// probe, so the caller keeps polling.
+func (p *PGProbe) check() error {
+	c := exec.Command(p.Docker, "compose", "exec", "-T", "postgres",
+		"pg_isready", "-U", "postgres", "-q")
+	c.Dir = p.Dir
+	if out, err := c.CombinedOutput(); err != nil {
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return fmt.Errorf("pg_isready: %w: %s", err, msg)
+		}
+		return fmt.Errorf("pg_isready: %w", err)
 	}
 	return nil
 }

@@ -15,8 +15,17 @@ import (
 
 // Health describes how to probe a service for readiness.
 type Health struct {
-	HTTP string   // GET this URL; <500 means healthy
-	TCP  []string // each host:port must accept a connection
+	HTTP     string   // GET this URL; <500 means healthy
+	TCP      []string // each host:port must accept a connection
+	Postgres *PGProbe // if set, pg_isready must pass inside the postgres container
+}
+
+// PGProbe runs `docker compose exec postgres pg_isready` to confirm the
+// database is genuinely accepting connections (not merely that the port is
+// open, which a TCP dial can see mid-initdb).
+type PGProbe struct {
+	Docker string // docker binary
+	Dir    string // compose project directory (rotkehlchen-web)
 }
 
 // Service is one orchestrated process (or a one-shot bring-up step like docker).
@@ -151,10 +160,15 @@ func buildService(cfg *config.Config, name string) (Service, error) {
 			Name: "docker", Dir: rw, Cmd: cfg.Tools.Docker,
 			Args: []string{"compose", "up", "-d"}, EnvFiles: rwEnv, Scope: secrets.ScopeShared,
 			Oneshot: true,
-			Health: Health{TCP: []string{
-				fmt.Sprintf("localhost:%d", cfg.Ports.Postgres),
-				fmt.Sprintf("localhost:%d", cfg.Ports.Redis),
-			}},
+			Health: Health{
+				TCP: []string{
+					fmt.Sprintf("localhost:%d", cfg.Ports.Redis),
+				},
+				// Postgres needs a real readiness probe: the mapped port can
+				// accept a TCP connection while the server is still running
+				// initdb, which would let migrations fire too early.
+				Postgres: &PGProbe{Docker: cfg.Tools.Docker, Dir: rw},
+			},
 		}, nil
 	case "django":
 		return Service{
