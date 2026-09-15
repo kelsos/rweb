@@ -9,7 +9,7 @@ import "github.com/kelsos/rweb/internal/secrets"
 // of failing on them. The truly-required secrets (everything in the manifest
 // not listed here) still fail doctor when absent.
 var optionalSecrets = map[string]bool{
-	// django — dev defaults shipped via derivedEnv, or feature-gated
+	// django — dev defaults shipped via stackenv.Derived, or feature-gated
 	"BRAINTREE_MERCHANT_ID": true,
 	"BRAINTREE_PUBLIC_KEY":  true,
 	"BRAINTREE_PRIVATE_KEY": true,

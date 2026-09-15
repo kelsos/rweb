@@ -15,6 +15,7 @@ import (
 	"github.com/kelsos/rweb/internal/config"
 	"github.com/kelsos/rweb/internal/db"
 	"github.com/kelsos/rweb/internal/secrets"
+	"github.com/kelsos/rweb/internal/stackenv"
 )
 
 // Instance is a tracked long-running child process.
@@ -128,7 +129,7 @@ func Up(cfg *config.Config, st *secrets.Store, profile string, opts UpOpts) erro
 	state.Profile = profile
 
 	for _, s := range services {
-		env, err := BuildEnv(s, secretSource(cfg, st))
+		env, err := BuildEnv(s, stackenv.Source(cfg, st))
 		if err != nil {
 			return err
 		}
@@ -331,7 +332,7 @@ func Restart(cfg *config.Config, st *secrets.Store, name string) error {
 	if err != nil {
 		return err
 	}
-	env, err := BuildEnv(s, secretSource(cfg, st))
+	env, err := BuildEnv(s, stackenv.Source(cfg, st))
 	if err != nil {
 		return err
 	}
@@ -463,7 +464,7 @@ func StartDocker(cfg *config.Config, st *secrets.Store) error {
 	if err != nil {
 		return err
 	}
-	env, err := BuildEnv(s, secretSource(cfg, st))
+	env, err := BuildEnv(s, stackenv.Source(cfg, st))
 	if err != nil {
 		return err
 	}

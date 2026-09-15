@@ -11,6 +11,7 @@ import (
 	"github.com/kelsos/rweb/internal/config"
 	"github.com/kelsos/rweb/internal/envutil"
 	"github.com/kelsos/rweb/internal/secrets"
+	"github.com/kelsos/rweb/internal/stackenv"
 )
 
 // Health describes how to probe a service for readiness.
@@ -58,16 +59,12 @@ func Services(cfg *config.Config, profile string) ([]Service, error) {
 		// fresh checkout with no repo .env files still has its config: values
 		// rweb derives from config first, then the user's [env.*] overrides.
 		if s.Scope != "" {
-			base := derivedEnv(cfg, s.Scope)
-			for k, v := range cfg.Env[s.Scope] {
-				base[k] = v
-			}
-			if len(base) > 0 {
+			if base := stackenv.Baseline(cfg, s.Scope); len(base) > 0 {
 				s.BaseEnv = base
 			}
 			// The active named-environment overlay sits above repo .env files,
 			// so selecting an environment authoritatively switches its values.
-			if ov := envOverlay(cfg, s.Scope); len(ov) > 0 {
+			if ov := stackenv.Overlay(cfg, s.Scope); len(ov) > 0 {
 				if s.Env == nil {
 					s.Env = map[string]string{}
 				}
@@ -79,52 +76,6 @@ func Services(cfg *config.Config, profile string) ([]Service, error) {
 		out = append(out, s)
 	}
 	return out, nil
-}
-
-// Google's universal reCAPTCHA v2 test keys — public, always-pass values meant
-// for development. Shipped as dev defaults; DJANGO_DEBUG=True silences the
-// test-key warning. A real key set in the secret store overrides them.
-const (
-	recaptchaTestSiteKey   = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
-	recaptchaTestSecretKey = "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe"
-)
-
-// derivedEnv returns non-secret env values rweb computes from config for a
-// scope, so they need not be set by hand or duplicated in secrets. These sit at
-// the managed-baseline level, so repo .env files and explicit [env.*] entries
-// still override them. Several Django settings hard-fail (ValueError) when
-// unset, so we supply dev-safe defaults here to keep the "a fresh checkout with
-// no .env files still boots" promise.
-func derivedEnv(cfg *config.Config, scope string) map[string]string {
-	switch scope {
-	case secrets.ScopeShared:
-		return map[string]string{"REDIS_HOST": "localhost"}
-	case secrets.ScopeDjango:
-		return map[string]string{
-			"DB_HOST": cfg.DB.Host,
-			"DB_PORT": fmt.Sprintf("%d", cfg.DB.Port),
-			"DB_NAME": cfg.DB.Name,
-			"DB_USER": cfg.DB.User,
-			"DB_TYPE": "postgres",
-			// Required-but-defaultable settings Django raises ValueError without.
-			"DJANGO_DEBUG":            "True",
-			"DOMAIN":                  "localhost",
-			"UPLOADED_BACKUPS_FOLDER": "data/backups",
-			"BRAINTREE_PRODUCTION":    "False",
-			// Email → mailpit (SMTP :1025), viewable via `rweb open mailpit`.
-			"EMAIL_TYPE": "MAILHOG",
-			"EMAIL_HOST": "localhost",
-			"EMAIL_PORT": "1025",
-			// reCAPTCHA dev test keys (overridden by a real secret if set).
-			"RECAPTCHA_PUBLIC_KEY":  recaptchaTestSiteKey,
-			"RECAPTCHA_PRIVATE_KEY": recaptchaTestSecretKey,
-		}
-	case secrets.ScopeNuxt:
-		return map[string]string{
-			"NUXT_PUBLIC_RECAPTCHA_SITE_KEY": recaptchaTestSiteKey,
-		}
-	}
-	return map[string]string{}
 }
 
 // ShortTmpdir pins TMPDIR to /tmp on macOS, where the default per-user temp dir
@@ -247,65 +198,8 @@ func buildService(cfg *config.Config, name string) (Service, error) {
 	}
 }
 
-// envOverlay returns the active named environment's non-secret overlay for a
-// scope (nil for the default/base env). It sits above repo .env files.
-func envOverlay(cfg *config.Config, scope string) map[string]string {
-	if cfg.ActiveEnv == "" || cfg.ActiveEnv == config.DefaultEnv {
-		return nil
-	}
-	p, ok := cfg.Environments[cfg.ActiveEnv]
-	if !ok {
-		return nil
-	}
-	return p.Env[scope]
-}
-
-// SecretSource provides a service's secret env for a scope. Both *secrets.Store
-// and the base+overlay merge below satisfy it.
-type SecretSource interface {
-	EnvFor(scope string) (map[string]string, error)
-}
-
-// multiSource merges a base secret store with a named environment's overlay
-// store; the overlay wins on conflicts.
-type multiSource struct{ base, env SecretSource }
-
-func (m multiSource) EnvFor(scope string) (map[string]string, error) {
-	out := map[string]string{}
-	b, err := m.base.EnvFor(scope)
-	if err != nil {
-		return nil, err
-	}
-	for k, v := range b {
-		out[k] = v
-	}
-	e, err := m.env.EnvFor(scope)
-	if err != nil {
-		return nil, err
-	}
-	for k, v := range e {
-		out[k] = v
-	}
-	return out, nil
-}
-
-// secretSource resolves the secret source for the active environment: the
-// single store for the default env, or the base store overlaid by the active
-// env's store for a named environment (env wins). active is the store the
-// caller already built for the active env (secrets.<active>.age).
-func secretSource(cfg *config.Config, active *secrets.Store) SecretSource {
-	if cfg.ActiveEnv == "" || cfg.ActiveEnv == config.DefaultEnv {
-		return active
-	}
-	base := secrets.New(
-		config.SecretsPathFor(config.DefaultEnv),
-		cfg.Secrets.KeyringService,
-		cfg.Secrets.KeyringUser,
-		config.KeyFile(),
-		cfg.Secrets.AgeRecipient,
-	)
-	return multiSource{base: base, env: active}
-}
+// SecretSource provides a service's secret env for a scope.
+type SecretSource = stackenv.SecretSource
 
 // BuildEnv composes a service's environment: os.Environ + base + repo env files,
 // then the service's own Env (incl. the named-env overlay), then the secret

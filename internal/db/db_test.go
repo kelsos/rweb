@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,48 @@ func writeBackup(t *testing.T, dir, name string, age time.Duration) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+type fakeSource map[string]string
+
+func (f fakeSource) EnvFor(string) (map[string]string, error) { return f, nil }
+
+// Management commands must see the same layered env as the django service:
+// a checkout whose localtest_env lacks EMAIL_TYPE used to crash migrate.
+func TestManageEnvLayers(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.Repos.RotkehlchenWeb = dir
+	cfg.Env = map[string]map[string]string{"django": {"DOMAIN": "fromenv", "DB_HOST": "fromenv"}}
+	cfg.Environments = map[string]config.EnvProfile{
+		"staging": {Env: map[string]map[string]string{"django": {"DB_PORT": "fromoverlay"}}},
+	}
+	cfg.ActiveEnv = "staging"
+	if err := os.WriteFile(filepath.Join(dir, "localtest_env"), []byte("DB_HOST=fromfile\nDB_PORT=fromfile\nDB_NAME=fromfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	env, err := manageEnv(cfg, fakeSource{"DB_NAME": "fromsecret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vals := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			vals[k] = v
+		}
+	}
+	for k, want := range map[string]string{
+		"EMAIL_TYPE": "MAILHOG",     // derived default
+		"DOMAIN":     "fromenv",     // [env.django]
+		"DB_HOST":    "fromfile",    // repo file beats [env.django]
+		"DB_PORT":    "fromoverlay", // named env beats repo file
+		"DB_NAME":    "fromsecret",  // secrets win
+	} {
+		if vals[k] != want {
+			t.Errorf("%s = %q, want %q", k, vals[k], want)
+		}
+	}
 }
 
 func cfgWithBackups(dir string) *config.Config {

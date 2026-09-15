@@ -5,7 +5,7 @@ package secrets
 // Derived from rotkehlchen-web (localtest_env, .env) and rotki.com (backend/.env,
 // packages/website/.env). Non-secret connection details (DB_HOST/PORT/NAME/USER,
 // REDIS_HOST) are not listed here: rweb derives them from config and injects
-// them (see proc.derivedEnv), so only the passwords/keys remain secrets.
+// them (see stackenv.Derived), so only the passwords/keys remain secrets.
 var Manifest = map[string][]string{
 	ScopeShared: {
 		"POSTGRES_PASSWORD",

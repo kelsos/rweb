@@ -16,6 +16,7 @@ import (
 	"github.com/kelsos/rweb/internal/config"
 	"github.com/kelsos/rweb/internal/envutil"
 	"github.com/kelsos/rweb/internal/secrets"
+	"github.com/kelsos/rweb/internal/stackenv"
 )
 
 // backupExt is the extension used for custom-format pg_dump files.
@@ -36,19 +37,19 @@ func Shell(cfg *config.Config, st *secrets.Store) error {
 	return Manage(cfg, st, "dbshell")
 }
 
-// Manage runs an arbitrary `uv run manage.py <args>` in rotkehlchen-web with the
-// repo env files loaded and the django secret scope overlaid on top.
+// Manage runs an arbitrary `uv run manage.py <args>` in rotkehlchen-web with
+// the same env the django service gets.
 func Manage(cfg *config.Config, st *secrets.Store, args ...string) error {
 	if cfg.Repos.RotkehlchenWeb == "" {
 		return fmt.Errorf("repos.rotkehlchen_web not set in config")
 	}
-	djEnv, err := st.EnvFor(secrets.ScopeDjango)
+	env, err := manageEnv(cfg, stackenv.Source(cfg, st))
 	if err != nil {
 		return err
 	}
 	c := exec.Command(cfg.Tools.UV, append([]string{"run", "manage.py"}, args...)...)
 	c.Dir = cfg.Repos.RotkehlchenWeb
-	c.Env = envutil.Compose(djangoEnvFiles(cfg), djEnv)
+	c.Env = env
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -233,6 +234,22 @@ func ResolveBackup(cfg *config.Config, ref string) (string, error) {
 		return "", fmt.Errorf("backup %q not found in %s", ref, cfg.BackupDir())
 	}
 	return cand, nil
+}
+
+// manageEnv composes the django scope's env in the same order as proc.BuildEnv:
+// managed baseline (derived defaults + [env.django]) < repo env files < named-env
+// overlay < secrets.
+func manageEnv(cfg *config.Config, src stackenv.SecretSource) ([]string, error) {
+	djEnv, err := src.EnvFor(secrets.ScopeDjango)
+	if err != nil {
+		return nil, err
+	}
+	return envutil.ComposeWithBase(
+		stackenv.Baseline(cfg, secrets.ScopeDjango),
+		djangoEnvFiles(cfg),
+		stackenv.Overlay(cfg, secrets.ScopeDjango),
+		djEnv,
+	), nil
 }
 
 func djangoEnvFiles(cfg *config.Config) []string {
