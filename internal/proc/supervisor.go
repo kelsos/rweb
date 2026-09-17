@@ -224,7 +224,7 @@ func resolveNest(cfg *config.Config, services []Service, withNest bool) ([]Servi
 	if !hasService(services, "docker") {
 		return services, true, nil
 	}
-	ns, err := buildService(cfg, "nest")
+	ns, err := resolveService(cfg, "nest")
 	if err != nil {
 		return services, false, err
 	}
@@ -328,7 +328,7 @@ func Restart(cfg *config.Config, st *secrets.Store, name string) error {
 		delete(state.Instances, name)
 		_ = saveState(state)
 	}
-	s, err := buildService(cfg, name)
+	s, err := resolveService(cfg, name)
 	if err != nil {
 		return err
 	}
@@ -460,7 +460,7 @@ func Tail(name string, follow bool) error {
 
 // StartDocker brings up only the docker infra and waits for it to be ready.
 func StartDocker(cfg *config.Config, st *secrets.Store) error {
-	s, err := buildService(cfg, "docker")
+	s, err := resolveService(cfg, "docker")
 	if err != nil {
 		return err
 	}

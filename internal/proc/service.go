@@ -51,31 +51,43 @@ func Services(cfg *config.Config, profile string) ([]Service, error) {
 	}
 	out := make([]Service, 0, len(p.Services))
 	for _, name := range p.Services {
-		s, err := buildService(cfg, name)
+		s, err := resolveService(cfg, name)
 		if err != nil {
 			return nil, err
-		}
-		// Inject the non-secret managed baseline for the service's scope, so a
-		// fresh checkout with no repo .env files still has its config: values
-		// rweb derives from config first, then the user's [env.*] overrides.
-		if s.Scope != "" {
-			if base := stackenv.Baseline(cfg, s.Scope); len(base) > 0 {
-				s.BaseEnv = base
-			}
-			// The active named-environment overlay sits above repo .env files,
-			// so selecting an environment authoritatively switches its values.
-			if ov := stackenv.Overlay(cfg, s.Scope); len(ov) > 0 {
-				if s.Env == nil {
-					s.Env = map[string]string{}
-				}
-				for k, v := range ov {
-					s.Env[k] = v
-				}
-			}
 		}
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+// resolveService builds a service with its scope's managed env layers applied.
+// Anything that spawns a service must go through here rather than
+// buildService, or the child starts without the baseline and overlay.
+func resolveService(cfg *config.Config, name string) (Service, error) {
+	s, err := buildService(cfg, name)
+	if err != nil {
+		return Service{}, err
+	}
+	if s.Scope == "" {
+		return s, nil
+	}
+	// Inject the non-secret managed baseline for the service's scope, so a
+	// fresh checkout with no repo .env files still has its config: values
+	// rweb derives from config first, then the user's [env.*] overrides.
+	if base := stackenv.Baseline(cfg, s.Scope); len(base) > 0 {
+		s.BaseEnv = base
+	}
+	// The active named-environment overlay sits above repo .env files,
+	// so selecting an environment authoritatively switches its values.
+	if ov := stackenv.Overlay(cfg, s.Scope); len(ov) > 0 {
+		if s.Env == nil {
+			s.Env = map[string]string{}
+		}
+		for k, v := range ov {
+			s.Env[k] = v
+		}
+	}
+	return s, nil
 }
 
 // ShortTmpdir pins TMPDIR to /tmp on macOS, where the default per-user temp dir

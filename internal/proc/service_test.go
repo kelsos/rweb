@@ -259,6 +259,56 @@ func TestBuildEnvDerivedFromConfig(t *testing.T) {
 	}
 }
 
+// Restart and StartDocker resolve a single service by name rather than through
+// a profile. They must get the same env layers Up does: a restarted django used
+// to lose the derived defaults, [env.*] and the named-environment overlay.
+func TestResolveServiceMatchesProfileEnv(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.Repos.RotkehlchenWeb = dir
+	cfg.Env = map[string]map[string]string{"django": {"DOMAIN": "fromenv"}}
+	cfg.Environments = map[string]config.EnvProfile{
+		"staging": {Env: map[string]map[string]string{"django": {"DB_PORT": "fromoverlay"}}},
+	}
+	cfg.ActiveEnv = "staging"
+	if err := os.WriteFile(filepath.Join(dir, "localtest_env"), []byte("DB_PORT=fromfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := resolveService(cfg, "django")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := BuildEnv(s, fakeSource{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vals := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			vals[k] = v
+		}
+	}
+	for k, want := range map[string]string{
+		"EMAIL_TYPE":       "MAILHOG",     // derived default
+		"DOMAIN":           "fromenv",     // [env.django]
+		"DB_PORT":          "fromoverlay", // named env beats repo file
+		"PYTHONUNBUFFERED": "1",           // service's own env kept
+	} {
+		if vals[k] != want {
+			t.Errorf("%s = %q, want %q", k, vals[k], want)
+		}
+	}
+
+	docker, err := resolveService(cfg, "docker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if docker.BaseEnv["REDIS_HOST"] != "localhost" {
+		t.Errorf("docker should carry the shared baseline, got BaseEnv=%v", docker.BaseEnv)
+	}
+}
+
 // fakeSource is an in-memory SecretSource for testing the merge logic without
 // touching the real (agent-opaque) secret store.
 type fakeSource map[string]map[string]string
