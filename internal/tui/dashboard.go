@@ -43,9 +43,12 @@ const (
 	focusLogs
 )
 
+// Loader resolves the current config and the active environment's secret store.
+type Loader func() (*config.Config, *secrets.Store, error)
+
 type dashboard struct {
-	cfg   *config.Config
-	store *secrets.Store
+	cfg  *config.Config
+	load Loader
 
 	profile string
 	rows    []proc.ServiceStatus
@@ -67,7 +70,13 @@ type dashboard struct {
 
 // RunDashboard launches the interactive supervisor dashboard. It follows the
 // logs of the active profile's services and offers start/stop/restart controls.
-func RunDashboard(cfg *config.Config, store *secrets.Store) error {
+// Each action reloads through load, so an `rweb env use` or config edit made
+// while the dashboard is open applies to the services it (re)starts.
+func RunDashboard(load Loader) error {
+	cfg, _, err := load()
+	if err != nil {
+		return err
+	}
 	profile, rows := proc.Snapshot(cfg)
 	names := make([]string, len(rows))
 	tag := map[string]lipgloss.Style{}
@@ -78,13 +87,13 @@ func RunDashboard(cfg *config.Config, store *secrets.Store) error {
 	ch, stop := proc.MultiTail(names, true)
 
 	m := &dashboard{
-		cfg: cfg, store: store,
+		cfg: cfg, load: load,
 		profile: profile, rows: rows,
 		logCh: ch, logTag: tag,
 		vp:     viewport.New(0, 0),
 		status: "ready",
 	}
-	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	stop()
 	return err
 }
@@ -238,27 +247,28 @@ func (m *dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 	case "s":
-		return m, m.action("start", func(s proc.ServiceStatus) error {
+		return m, m.action("start", func(cfg *config.Config, st *secrets.Store, s proc.ServiceStatus) error {
 			if s.State != "stopped" {
 				return fmt.Errorf("%s is already running", s.Name)
 			}
-			return proc.Restart(m.cfg, m.store, s.Name)
+			return proc.Restart(cfg, st, s.Name)
 		})
 	case "r":
-		return m, m.action("restart", func(s proc.ServiceStatus) error {
-			return proc.Restart(m.cfg, m.store, s.Name)
+		return m, m.action("restart", func(cfg *config.Config, st *secrets.Store, s proc.ServiceStatus) error {
+			return proc.Restart(cfg, st, s.Name)
 		})
 	case "x":
-		return m, m.action("stop", func(s proc.ServiceStatus) error {
-			return proc.StopService(m.cfg, s.Name)
+		return m, m.action("stop", func(cfg *config.Config, _ *secrets.Store, s proc.ServiceStatus) error {
+			return proc.StopService(cfg, s.Name)
 		})
 	}
 	return m, nil
 }
 
 // action runs a (blocking) supervisor operation on the selected service off the
-// UI goroutine, reporting the outcome back as an actionMsg.
-func (m *dashboard) action(verb string, fn func(proc.ServiceStatus) error) tea.Cmd {
+// UI goroutine, reporting the outcome back as an actionMsg. The config and
+// secret store are reloaded first so the action never runs on a stale env.
+func (m *dashboard) action(verb string, fn func(*config.Config, *secrets.Store, proc.ServiceStatus) error) tea.Cmd {
 	s, ok := m.selected()
 	if !ok || m.busy {
 		return nil
@@ -266,7 +276,11 @@ func (m *dashboard) action(verb string, fn func(proc.ServiceStatus) error) tea.C
 	m.busy = true
 	m.status = fmt.Sprintf("%s %s…", verb, s.Name)
 	return func() tea.Msg {
-		if err := fn(s); err != nil {
+		cfg, st, err := m.load()
+		if err != nil {
+			return actionMsg{status: fmt.Sprintf("%s %s failed: %v", verb, s.Name, err)}
+		}
+		if err := fn(cfg, st, s); err != nil {
 			return actionMsg{status: fmt.Sprintf("%s %s failed: %v", verb, s.Name, err)}
 		}
 		return actionMsg{status: fmt.Sprintf("%s %s ✓", verb, s.Name)}
